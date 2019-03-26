@@ -1,0 +1,23 @@
+Defines:
+CPU = 6502
+
+Address defines:
+
+Code labels:
+6000 = main
+
+
+define CPU = 6502
+
+
+;@build Tool assemble hello.asm hello.bin -list
+;@build tools.DevCart COM10 run hello.bin 0x6000
+
+
+0x6000:
+
+main:
+
+6000: EE 48 05   INC  0x548
+6003: 60         RTS
+

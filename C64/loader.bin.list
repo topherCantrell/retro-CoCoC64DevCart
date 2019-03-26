@@ -1,0 +1,211 @@
+Defines:
+CPU = 6502
+
+Address defines:
+DE00 = _DEV_PIA_A
+DE02 = _DEV_PIA_B
+0004 = dst
+0006 = len
+0002 = ptr
+0008 = val
+
+Code labels:
+8009 = entry
+804C = loadLoop
+8019 = main
+8089 = rbe
+80A6 = rbo
+8077 = readByte
+80CC = readNibble
+80D1 = rne
+80EE = rno
+8059 = sk1
+8063 = sk2
+
+
+;@build Tool assemble loader.asm loader.bin -list
+
+define CPU = 6502
+
+address ptr = 2  ; Used as a pointer to memory being filled
+address dst = 4  ; Remember the 2-byte destination
+address len = 6  ; Counting down the 2-byte length
+address val = 8  ; Bits as they come in
+
+; The 6521 in the development cartridge is tied to the /IO1 signal
+; delivered to the cartridge. This selects address DExx.
+;
+address _DEV_PIA_A = 0xDE00
+address _DEV_PIA_B = 0xDE02
+
+; The /EXROM is grounded in the development cartridge. This maps the
+; ROM to 8000-9FFF. If the first 9 bytes contain a special signature
+; then the C64 kernel will jump to it.
+;
+0x8000:
+
+8000: 09 80 # (word)entry       ; RESET vector (start of loader)
+8002: 09 80 # (word)entry       ; NMI vector (start of loader)
+
+8004: C3 C2 CD 38 30 # 0xC3, 0xC2, 0xCD, 0x38, 0x30 ; "CBM80" in PETSCII
+
+entry:
+
+8009: 78         SEI                ; Turn off interrupts
+
+800A: 8E 16 D0   STX 0xD016         ; Duplicate KERNEL ...
+800D: 20 A3 FD   JSR 0xFDA3         ; ... startup ...
+8010: 20 50 FD   JSR 0xFD50         ; ...
+8013: 20 15 FD   JSR 0xFD15         ; ...
+8016: 20 5B FF   JSR 0xFF5B         ; ...
+
+main:
+
+8019: A9 00      LDA  #0            ; Data-direction regsiter
+801B: 8D 01 DE   STA  _DEV_PIA_A+1  ; Activate data ...
+801E: 8D 03 DE   STA  _DEV_PIA_B+1  ; ... direction registers
+8021: 8D 00 DE   STA  _DEV_PIA_A    ; Port A is all inputs
+8024: A9 FF      LDA  #0xFF         ; Port B is all ...
+8026: 8D 02 DE   STA  _DEV_PIA_B    ; ... outputs
+8029: A9 04      LDA  #4            ; Data register
+802B: 8D 01 DE   STA  _DEV_PIA_A+1  ; Activate data ...
+802E: 8D 03 DE   STA  _DEV_PIA_B+1  ; ... registers
+
+8031: 20 77 80   JSR  readByte      ; Ignore the "X" command (future enhancement)
+
+8034: 20 77 80   JSR  readByte      ; Read dest MSB
+8037: 85 03      STA  >ptr+1        ; MSB of pointer ...
+8039: 85 05      STA  >dst+1        ; ... and dest
+803B: 20 77 80   JSR  readByte      ; Read dest LSB
+803E: 85 02      STA  >ptr          ; LSB of poitner ...
+8040: 85 04      STA  >dst          ; ... and dest
+
+8042: 20 77 80   JSR  readByte      ; MSB of ...
+8045: 85 07      STA  >len+1        ; ... length
+8047: 20 77 80   JSR  readByte      ; LSB of ...
+804A: 85 06      STA  >len          ; ... length
+
+loadLoop:
+
+804C: 20 77 80   JSR  readByte      ; Get the next byte
+804F: A0 00      LDY  #0            ; Store it to ...
+8051: 91 02      STA  (ptr),Y       ; ... destination
+
+8053: E6 02      INC  >ptr          ; Bump pointer LSB
+8055: D0 02      BNE  sk1           ; No carry ... skip the MSB
+8057: E6 03      INC  >ptr+1        ; Bump pointer MSB
+sk1:
+
+8059: C6 06      DEC  >len          ; Count down LSB
+805B: A5 06      LDA  >len          ; Did LSB wrap ...
+805D: C9 FF      CMP  #0xFF         ; ... around to FF?
+805F: D0 02      BNE  sk2           ; No ... skip MSB
+8061: C6 07      DEC  >len+1        ; Count down MSB
+sk2:
+
+8063: A5 06      LDA  >len          ; Go back until ...
+8065: 05 07      ORA  >len+1        ; ... len is ...
+8067: D0 E3      BNE  loadLoop      ; ... 0 ...
+
+8069: A9 53      LDA  #83           ; Visual notification of ...
+806B: 8D 04 04   STA  0x404         ; ... execute function
+
+806E: A9 80      LDA  #0x80         ; Return to ...
+8070: 48         PHA                ; ... label "entry" at 8019 ...
+8071: A9 18      LDA  #0x18         ; ... remember that 6502 return ...
+8073: 48         PHA                ; ... is backed up one on stack (8018)
+
+8074: 6C 04 00   JMP  (dst)         ; All loaded ... execute the destination
+
+readByte:
+
+8077: A9 00      LDA  #0            ; Clear the ...
+8079: 85 08      STA  >val          ; ... incoming shift
+807B: AD 00 DE   LDA  _DEV_PIA_A    ; Read the hardware size
+807E: 29 10      AND  #0b_0001_0000 ; If a 0 then ...
+8080: F0 4A      BEQ  readNibble    ; ... read a nibble at a time (fast)
+  
+8082: A2 31      LDX  #49           ; Show size "1" ...
+8084: 8E 00 04   STX  0x400         ; ... on screen
+
+8087: A2 04      LDX  #4            ; 4 passes through even/odd loop
+
+rbe:
+8089: EE 01 04   INC  0x401         ; Visual notification of wait-loop
+808C: AD 00 DE   LDA  _DEV_PIA_A    ; Check the ...
+808F: 29 80      AND  #0b_1000_0000 ; ... clock bit
+8091: F0 F6      BEQ  rbe           ; Loop until 1
+8093: AD 00 DE   LDA  _DEV_PIA_A    ; Get data
+8096: 29 01      AND  #0b_0000_0001 ; Keep the lower data bit
+8098: 06 08      ASL  >val          ; Shift the tally left
+809A: 05 08      ORA  >val          ; OR in the next bit
+809C: 85 08      STA  >val          ; Keep the tally
+
+809E: 8D 02 04   STA  0x402         ; Visual notification of the bit
+
+80A1: A9 80      LDA  #0b_1000_0000 ; Acknowledge the ...
+80A3: 8D 02 DE   STA  _DEV_PIA_B    ; ... input bit with a 1
+
+rbo:
+80A6: EE 01 04   INC  0x401         ; Visual notification of wait-loop
+80A9: AD 00 DE   LDA  _DEV_PIA_A    ; Check the ...
+80AC: 29 80      AND  #0b_1000_0000 ; ... clock bit
+80AE: D0 F6      BNE  rbo           ; Loop until 0
+80B0: AD 00 DE   LDA  _DEV_PIA_A    ; Get data
+80B3: 29 01      AND  #0b_0000_0001 ; Keep the lower data bit
+80B5: 06 08      ASL  >val          ; Shift the tally left
+80B7: 05 08      ORA  >val          ; OR in the next bit
+80B9: 85 08      STA  >val          ; Keep the tally
+
+80BB: 8D 02 04   STA  0x402         ; Visual notification of the bit
+
+80BE: A9 00      LDA  #0b_0000_0000 ; Acknowledge the ...
+80C0: 8D 02 DE   STA  _DEV_PIA_B    ; ... input bit with a 0
+
+80C3: CA         DEX                ; All bits shifted in?
+80C4: D0 C3      BNE  rbe           ; No ... keep going
+
+80C6: A5 08      LDA  >val          ; Get the final value
+
+80C8: EE 03 04   INC  0x403         ; Visual notification of a byte read
+
+80CB: 60         RTS                ; Done
+
+readNibble:
+
+80CC: A9 34      LDA  #52           ; Show size "4" ...
+80CE: 8D 00 04   STA  0x400         ; ... on screen
+
+rne:
+80D1: EE 01 04   INC  0x401         ; Visual notification of wait-loop
+80D4: AD 00 DE   LDA  _DEV_PIA_A    ; Check the ...
+80D7: 29 80      AND  #0b_1000_0000 ; ... clock bit
+80D9: F0 F6      BEQ  rne           ; Loop until 1
+80DB: AD 00 DE   LDA  _DEV_PIA_A    ; Get the data
+80DE: A2 80      LDX  #0b_1000_0000 ; Acknowledge the ...
+80E0: 8E 02 DE   STX  _DEV_PIA_B    ; ... input bit with a 1
+80E3: 29 0F      AND  #0b_0000_1111 ; Keep the nibble
+80E5: 0A         ASL  A             ; Shift ...
+80E6: 0A         ASL  A             ; ... nibble ...
+80E7: 0A         ASL  A             ; ... to ...
+80E8: 0A         ASL  A             ; ... upper
+80E9: 85 08      STA  >val          ; Hold the upper nibble
+
+80EB: 8D 02 04   STA  0x402         ; Visual notification of the nibble
+
+rno:
+80EE: EE 01 04   INC  0x401         ; Visual notification of wait-loop
+80F1: AD 00 DE   LDA  _DEV_PIA_A    ; Check the ...
+80F4: 29 80      AND  #0b_1000_0000 ; ... clock bit
+80F6: D0 F6      BNE  rno           ; Loop until 0
+80F8: AD 00 DE   LDA  _DEV_PIA_A    ; Get the data
+80FB: A2 00      LDX  #0b_0000_0000 ; Acknowledge the ...
+80FD: 8E 02 DE   STX  _DEV_PIA_B    ; ... input bit with a 0
+8100: 29 0F      AND  #0b_0000_1111 ; Keep the nibble
+8102: 05 08      ORA  >val          ; OR upper and lower nibbles
+
+8104: 8D 02 04   STA  0x402         ; Visual notification of nibble and byte value
+
+8107: EE 03 04   INC  0x403         ; Visual notification of a byte read
+
+810A: 60         RTS                ; Done

@@ -1,0 +1,27 @@
+Defines:
+CPU = 6809
+
+Address defines:
+
+Code labels:
+6000 = main
+
+
+define CPU = 6809
+
+;define CPU = 6502
+
+;@build Tool assemble hello.asm hello.bin -list
+;@build tools.DevCart COM3 run hello.bin 0x6000
+
+; build tools.DevCart COM10 run daggorath.bin 0xC000
+
+
+0x6000:
+
+main:
+
+6000: 7A 05 48   DEC  0x548
+6003: 7E 60 00   jmp  main
+6006: 39         RTS
+

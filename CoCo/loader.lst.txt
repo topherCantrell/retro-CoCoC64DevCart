@@ -1,0 +1,221 @@
+Defines:
+CPU = 6809
+
+Address defines:
+FF40 = _DEV_PIA_A
+FF42 = _DEV_PIA_B
+FFDE = _SAM_ALL_RAM
+
+Code labels:
+E02C = ALLRAM
+E045 = ALLRAME
+E033 = AR_1
+E00C = Copy1
+E021 = DAR1
+E017 = DOALLR
+E045 = main
+E096 = rbe
+E0AA = rbe1
+E0B2 = rbo
+E0C6 = rbo1
+E085 = readByte
+E07C = readLoop
+E0D6 = readNibble
+E0DB = rne
+E0F8 = rno
+
+
+;@build Tool assemble loader.asm loader.bin -list
+
+define CPU = 6809
+
+
+; The 6821 in the development cartridge is tied to the /SCS signal
+; delivered to the cartridge. This selects address FF4x.
+;
+address _DEV_PIA_A = 0xFF40
+address _DEV_PIA_B = 0xFF42
+
+address _SAM_ALL_RAM=0xFFDE
+
+; The monitor program is copied to E000-EFFF (All-RAM mode) and execute.
+; The code up to the line of ========== is guaranteed relocatable allowing the
+; coping code to run in ROM and JMP to RAM.
+;
+0xE000:       
+
+E000: 8D 15      BSR     DOALLR          ; Copy ROM to ALL-RAM mode
+
+E002: 8E C0 00   LDX     #0xC000         ; Cartridge memory
+E005: CE E0 00   LDU     #0xE000         ; RAM area
+E008: 10 8E 10 00 LDY     #0x1000         ; 4K
+E00C: A6 80      Copy1:  LDA     ,X+             ; Copy ...
+E00E: A7 C0      STA     ,U+             ; ... monitor ...
+E010: 31 3F      LEAY    -1,Y            ; ... to ...
+E012: 26 F8      BNE     Copy1           ; ... RAM
+
+E014: 7E E0 45   JMP     main            ; Start the monitor in RAM (JMP ... *NOT* BRA)
+
+; ================================================================================
+; Utility functions
+
+; This routine copies the ALLRAM routine to memory and executes it there.
+; This routine can't run in ROM since ROM gets switched out momentarily
+; during the copy.
+;
+E017: 8E E0 2C   DOALLR: LDX     #ALLRAM          ; Start of ALLRAM function
+E01A: CE 7F 00   LDU     #0x7F00          ; Destination in upper RAM
+E01D: 10 8E 00 19 LDY     #ALLRAME-ALLRAM  ; Number of bytes to copy
+E021: A6 80      DAR1:   LDA     ,X+              ; Copy the ...
+E023: A7 C0      STA     ,U+              ; ... routine ...
+E025: 31 3F      LEAY    -1,Y             ; ... to ...
+E027: 26 F8      BNE     DAR1             ; ... RAM
+E029: 7E 7F 00   JMP     0x7F00           ; Execute routine (return to our caller)
+;
+; This routine copies the contents of ROM into the upper 32 bytes
+; of all-ram mode.
+;
+E02C: 34 01      ALLRAM: PSHS    CC             ; Save interrupt status
+E02E: 1A 50      ORCC    #0x50          ; Turn off interrupts
+E030: 8E 80 00   LDX     #0x8000        ; Start of ROM
+E033: B7 FF DE   AR_1:   STA     _SAM_ALL_RAM   ; Switch ROM bank ON
+E036: A6 84      LDA     ,X             ; Get value from ROM
+E038: B7 FF DF   STA     _SAM_ALL_RAM+1 ; Switch ROM bank OFF
+E03B: A7 80      STA     ,X+            ; Store value to RAM under ROM bank
+E03D: 8C FF 00   CMPX    #0xFF00        ; Reached the end of ROM?
+E040: 26 F1      BNE     AR_1           ; No ... go back for more
+E042: 35 01      PULS    CC             ; Restore interrupts
+E044: 39         RTS
+ALLRAME:
+
+;===========================================================================
+
+main:
+
+E045: 86 00      LDA     #0            ; Data-direction regsiter
+E047: B7 FF 41   STA     _DEV_PIA_A+1  ; Activate data ...
+E04A: B7 FF 43   STA     _DEV_PIA_B+1  ; ... direction registers
+E04D: B7 FF 40   STA     _DEV_PIA_A    ; Port A is all inputs
+E050: 86 FF      LDA     #0xFF         ; Port B is all ...
+E052: B7 FF 42   STA     _DEV_PIA_B    ; ... outputs
+E055: 86 04      LDA     #4            ; Data register
+E057: B7 FF 41   STA     _DEV_PIA_A+1  ; Activate data ...
+E05A: B7 FF 43   STA     _DEV_PIA_B+1  ; ... registers
+
+E05D: 8D 26      BSR     readByte      ; Ignore the "X" command (future enhancement)
+
+E05F: 8D 24      BSR     readByte      ; Read dest MSB
+E061: 34 04      PSHS    B             ; Hold the MBB
+E063: 8D 20      BSR     readByte      ; Read dest LSB
+E065: 35 02      PULS    A             ; MSB back to D
+E067: 1F 03      TFR     D,U           ; Destination to U
+  
+E069: 8E E0 45   LDX     #main         ; The loaded program ...
+E06C: 34 10      PSHS    X             ; ... can "return" to top of loader
+E06E: 1F 01      TFR     D,X           ; Push destination on stack ...
+E070: 34 10      PSHS    X             ; ... we'll "return" to execute program
+
+E072: 8D 11      BSR     readByte      ; MSB of length
+E074: 34 04      PSHS    B             ; Hold MSB
+E076: 8D 0D      BSR     readByte      ; LSB of length
+E078: 35 02      PULS    A             ; MSB back to D
+E07A: 1F 02      TFR     D,Y           ; Count to Y
+
+readLoop:
+E07C: 8D 07      BSR     readByte	    ; Get the next byte
+E07E: E7 C0      STB     ,U+		    ; Store it to memory
+E080: 31 3F      LEAY    -1,Y		    ; All done?
+E082: 26 F8      BNE     readLoop	    ; No ... do all
+  
+E084: 39         RTS			        ; Jump to the loaded code
+
+readByte:
+  
+E085: B6 FF 40   LDA     _DEV_PIA_A    ; Read the hardware size
+E088: 84 10      ANDA    #0b_0001_0000 ; If a 0 then ...
+E08A: 27 4A      BEQ     readNibble    ; ... read a nibble at a time (fast)
+  
+E08C: 86 31      LDA     #49           ; Show size "1" ...
+E08E: B7 04 00   STA     0x400         ; ... on screen
+
+E091: C6 00      LDB     #0            ; Clear the incoming shift
+E093: 8E 00 04   LDX     #4            ; 4 passes through even/odd loop
+
+rbe:
+E096: 7C 04 01   INC     0x401         ; Visual notification of wait-loop
+E099: B6 FF 40   LDA     _DEV_PIA_A    ; Check the ...
+E09C: 84 80      ANDA    #0b_1000_0000 ; ... clock bit
+E09E: 27 F6      BEQ     rbe           ; Loop until 1
+E0A0: 58         ASLB                  ; Shift the running result
+E0A1: B6 FF 40   LDA     _DEV_PIA_A    ; Get data
+E0A4: 84 01      ANDA    #0b_0000_0001 ; Keep the lower data bit
+E0A6: 27 02      BEQ     rbe1          ; Data us 0 ... leave the 0
+E0A8: CA 01      ORB     #1            ; Or in the 1 data bit
+rbe1:
+E0AA: F7 04 02   STB     0x402         ; Visual notification of the bit
+
+E0AD: 86 80      LDA     #0b_1000_0000 ; Acknowledge the ...
+E0AF: B7 FF 42   STA     _DEV_PIA_B    ; ... input bit with a 1
+
+rbo:
+E0B2: 7C 04 01   INC     0x401         ; Visual notification of wait-loop
+E0B5: B6 FF 40   LDA     _DEV_PIA_A    ; Check the ...
+E0B8: 84 80      ANDA    #0b_1000_0000 ; ... clock bit
+E0BA: 26 F6      BNE     rbo           ; Loop until 0
+E0BC: 58         ASLB
+E0BD: B6 FF 40   LDA     _DEV_PIA_A    ; Get data
+E0C0: 84 01      ANDA    #0b_0000_0001 ; Keep the lower data bit
+E0C2: 27 02      BEQ     rbo1          ; Data us 0 ... leave the 0
+E0C4: CA 01      ORB     #1            ; Or in the 1 data bit
+rbo1:
+E0C6: F7 04 02   STB     0x402         ; Visual notification of the bit
+
+E0C9: 86 00      LDA     #0b_0000_0000 ; Acknowledge the ...
+E0CB: B7 FF 42   STA     _DEV_PIA_B    ; ... input bit with a 0
+
+E0CE: 30 1F      LEAX    -1,X          ; All bits shifted in?
+E0D0: 26 C4      BNE     rbe           ; No ... keep going
+  
+E0D2: 7C 04 03   INC     0x403         ; Visual notification of a byte read
+
+E0D5: 39         RTS                   ; Done (result in B)
+
+readNibble:
+
+E0D6: 86 34      LDA     #52           ; Show size "4" ...
+E0D8: B7 04 00   STA     0x400         ; ... on screen
+
+rne:
+E0DB: 7C 04 01   INC     0x401         ; Visual notification of wait-loop
+E0DE: B6 FF 40   LDA     _DEV_PIA_A    ; Check the ...
+E0E1: 84 80      ANDA    #0b_1000_0000 ; ... clock bit
+E0E3: 27 F6      BEQ     rne           ; Loop until 1
+E0E5: F6 FF 40   LDB     _DEV_PIA_A    ; Get the data
+E0E8: 86 80      LDA     #0b_1000_0000 ; Acknowledge the ...
+E0EA: B7 FF 42   STA     _DEV_PIA_B    ; ... input bit with a 1
+E0ED: C4 0F      ANDB    #0b_0000_1111 ; Keep the nibble
+E0EF: 58         ASLB                  ; Shift ...
+E0F0: 58         ASLB                  ; ... nibble ...
+E0F1: 58         ASLB                  ; ... to ...
+E0F2: 58         ASLB                  ; ... upper
+E0F3: 1F 01      TFR     D,X           ; Upper nibble to X
+  
+E0F5: F7 04 02   STB     0x402         ; Visual notification of the nibble
+
+rno:
+E0F8: 7C 04 01   INC     0x401         ; Visual notification of wait-loop
+E0FB: B6 FF 40   LDA     _DEV_PIA_A    ; Check the ...
+E0FE: 84 80      ANDA    #0b_1000_0000 ; ... clock bit
+E100: 26 F6      BNE     rno           ; Loop until 0
+E102: F6 FF 40   LDB     _DEV_PIA_A    ; Get the data
+E105: 86 00      LDA     #0b_0000_0000 ; Acknowledge the ...
+E107: B7 FF 42   STA     _DEV_PIA_B    ; ... input bit with a 0
+E10A: C4 0F      ANDB    #0b_0000_1111 ; Keep the nibble
+E10C: 3A         ABX                   ; Add upper and lower nibble together
+E10D: 1F 10      TFR     X,D           ; Result byte to B
+
+E10F: F7 04 02   STB     0x402         ; Visual notification of nibble and byte value
+
+E112: 7C 04 03   INC     0x403         ; Visual notification of a byte read
+
+E115: 39         RTS                   ; Done

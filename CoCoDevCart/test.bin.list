@@ -1,0 +1,21 @@
+Defines:
+CPU = 6809
+
+Address defines:
+
+Code labels:
+0420 = loop
+
+;@build tools.assembler.Assembler test.asm test.bin -list
+;@build tools.coco.DevCartLoader X test.bin 0x420 
+
+
+define CPU = 6809
+
+0x420:
+
+loop:
+0420: B6 04 00   LDA 0x400
+0423: 4C         INCA
+0424: B7 04 00   STA 0x400
+0427: 20 F7      BRA loop

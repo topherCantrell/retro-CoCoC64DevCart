@@ -1,0 +1,45 @@
+********** SuperGames cartridge *************
+
+The SuperGames cartridge is one of the few Commodore
+brand cartridges that uses standard 27x64, 27x128 or 27x256
+type EPROMS.  In addition, there is a 4bit control port (74175) at 
+$DF00-DFFF which controls which of the 16kb bank is active. Chip
+U1 appears at address $8000-9FFF (ROML is /CS), U2 at $A000-BFFF
+(ROMH is /CS). On reset both GAME/EXROM are pulled low forcing the
+16kb external ROM memory map. This can be changed by splitting the
+GAME/EXROM pins so that only EXROM is active or swapping signal
+from the 74175 chip to active high rather than low. Auto-boot can
+be included in the start bytes of bank 0. The bit definitions of
+the $DF00 control port are as follows:
+
+	Bits 0 & 1 define bank selection 0-3, bank 0 is power-on default
+        Bit 2 is GAME/EXROM control, setting gives RAM/BASIC back
+        Bit 3 is like a write-protect, preventing further writes to the
+        latch.
+
+Simple hacks may be to re-wire Bit3 as A15 and use 27x512
+chips; or to re-wire and provide independent control of GAME and EXROM.
+
+
+
+
+
+********** MagicDesk I cartridge *************
+
+This cartridge features all pins on the edge connector, and can be configured 
+for up to four EPROMs. Typically these EPROMs are only 8k types, but the cart
+could be hacked for the higher capacity types. By default, the images appear in
+the ROML region ($8000-9FFF) though again, this can be changes with a wire or two.
+
+Two bits in the control register define which of the four ROMs is banked in. 
+The control port is at $DE00-DEFF. Only D0 and D1 are connected by default. 
+	00 selects ROM-A 
+	01 selects ROM-B 
+	10 selects ROM-C 
+	11 selects ROM-D
+
+J1 and J3 shorted allows 2364 ROMs
+J2 and J4 shorted allows 27xxx ROMs
+
+The capability of this cartridge is under-rated. It is conceivable to turn it into 
+a 128k ROM pack with just a few wiring and jumper modifications.

@@ -1,0 +1,978 @@
+ab
+00 - loader
+01 - daggorath
+10 - megabug
+11 - polaris
+ 
+
+FF47 0011b100
+FF43 0011a100
+
+poke 65351,60
+exec 49152
+
+
+
+                      ; 6833 SAM Mapped into Color Computer memory at $FFC0
+                      ; There are no data lines to the SAM. Bits are set by
+                      ; writing to odd addresses and cleared by writing to
+                      ; even addresses. The LSB of each of several fields 
+                      ; appears first in memory as follows:
+ 
+                      ; V0 V1 V2    F0 F1 F2 F3 F4 F5 F6    P0    R0 R1    M0 
+M1    TY
+ 
+                      SAM_VIDEO_MODE EQU $FFC0
+                      ;
+                      ; Video Mode (v0-V2)
+                      ; 000 AI, AE, S4, S6
+                      ; 001 G1C, G1R
+                      ; 010 G2C
+                      ; 011 G2R
+                      ; 100 G3C
+                      ; 101 G3R
+                      ; 110 G6R, G6C
+                      ; 111 Not Used
+ 
+                      SAM_DISPLAY_OFFSET EQU $FFC6
+                      ;
+                      ; VDG Display Offset (F0-F6)
+                      ; Upper 7 bits of offset means these are in 512 byte 
+pages ...
+                      ; 0000001 = 00000010 00000000 -> 512
+                      ; BASIC ROM initializes to 0x0400 at startup
+ 
+                      SAM_PAGE_NUMBER EQU $FFD4
+                      ;
+                      ; Page Number (P1)
+                      ; Allows for two pages in lower 32K address ... not used
+ 
+                      SAM_CPU_RATE EQU $FFD6
+                      ;
+                      ; CPU Rate (R0-R1)
+                      ; 00 0.89 MHz
+                      ; 01 0.89 MHz, 1.79 MHz
+                      ; 10 Not Used
+                      ; 11 Not Used
+ 
+                      SAM_MEMORY_SIZE EQU $FFDA
+                      ; Memory size (M0-M1)
+                      ; 00  4K
+                      ; 01 16K
+                      ; 10 32/64K
+                      ; 11 Not used
+ 
+                      SAM_ALL_RAM EQU $FFDE
+                      ; Map type (TY)
+                      ; 0 for normal mode (32K RAM, upper half ROM)
+                      ; 1 for all-RAM (64K RAM, no ROM)
+ 
+                      ; Input/Output Devices
+                      PIA_0    EQU   $FF00
+                      PIA_1    EQU   $FF20
+                      PIA_CART EQU   $FF40
+ 
+                      ; 6809 Vectors
+                      VECTOR_RESET     EQU   $FFFE
+                      VECTOR_NMI       EQU   $FFFC
+                      VECTOR_SW1       EQU   $FFFA
+                      VECTOR_IRQ       EQU   $FFF8
+                      VECTOR_FIRQ      EQU   $FFF6
+                      VECTOR_SWI2      EQU   $FFF4
+                      VECTOR_SWI3      EQU   $FFF2
+                      VECTOR_NOT_USED  EQU   $FFF0
+ 
+                      ; ROM Areas
+                      ROM_EXTENDED  EQU   $8000
+                      ROM_BASIC     EQU   $A000
+                      ROM_CART      EQU   $C000
+ 
+                      ; OS Service Vectors in ROM
+                      ROM_POLCAT  EQU   $A000 ; Polls keyboard for a character
+                      ROM_CHROUT  EQU   $A002 ; Outputs a character to screen 
+or device
+                      ROM_CSRDON  EQU   $A004 ; Starts cassette and prepares 
+for reading
+                      ROM_BLKIN   EQU   $A006 ; Reads a block from cassette
+                      ROM_BLKOUT  EQU   $A008 ; Writes a block to cassette
+                      ROM_JOYIN   EQU   $A00A ; Reads joystick values
+ 
+                      ; Text mode uses the following character set:
+                      ; 0-64     reversed characters
+                      ; 64-128   normal characters
+                      ; 128-255  graphics patterns
+                      ; @ABCDEFGHIJKLMNOPQRSTUVWXYZ[\] UP-ARROW LEFT-ARROW 
+SPACE !"#$%&'()*+,-./0123456789:;<=>?
+ 
+                      ;ASCIITRANS:
+                      ;        fcb     32,32,32,32,32,32,32,32,32,32,32,32,32,32
+,32,32
+                      ;        fcb       32,32,32,32,32,32,32,32,32,32,32,32,32,
+32,32,32
+                      ;        fcb     96,97,98,99,100,101,102,103,104,105,106,1
+07,108,109,110,111
+                      ;        fcb       112,113,114,115,116,117,118,119,120,121
+,122,123,124,125,126,127
+                      ;        fcb     64,65,66,67,68,69,70,71,72,73,74,75,76,77
+,78,79
+                      ;        fcb       80,81,82,83,84,85,86,87,88,89,90,91,92,
+93,94,95
+                      ;        fcb     0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15
+                      ;        fcb       16,17,18,19,20,21,22,23,24,25,26,27,28,
+29,30,31 
+                      ;
+                      ; CoCo IDE Development Cartridge
+                      ;
+                      ; The EPROM on the cartridge is a 32K part giving us 4 
+banks of 8K.
+                      ; The banks are selected through the first PIA. On 
+powerup, bank 0
+                      ; is active.
+                      ;
+                      ; There is an 8-bit general-purpose port connector on 
+the cartridge
+                      ; board. This port is wired to various I/O pins of the 
+PIAs.
+                      ;
+                      ; There are two PIAs on the cartridge ... one at FF40 
+and one at FF44.
+                      ; These PIAs are hooked to the IDE connector allowing an 
+ATA drive
+                      ; to be bit banged. Note that 4 of the wires run through 
+inverters.
+                      ;
+                      ; FF40-A MSB of IDE Data
+                      ;      B LSB of IDE Data
+                      ;      CA1 nc
+                      ;      CA2 nc
+                      ;      CB1 nc
+                      ;      CB2 ROM B1
+                      ;
+                      ; FF44-A-0 nc
+                      ;        1 nc
+                      ;        2 nc
+                      ;        3 PRG6    
+                      ;        4 PRG1 (LOADER READ BIT 0)
+                      ;        5 PRG2 (LOADER READ BIT 1)
+                      ;        6 PRG3 (LOADER READ CLOCK) 
+                      ;        7 PRG7 (LOADER WRITE BIT 0) (NOT on 1st round)
+                      ;
+                      ; FF44-B-0 IDE A0
+                      ;        1 IDE A1
+                      ;        2 IDE A2
+                      ;        3 nc (This is PRG7 on the 1st round)
+                      ;        4 IDE CS1P (inverted)
+                      ;        5 IDE CS3P (inverted)
+                      ;        6 IDE WR   (inverted)
+                      ;        7 IDE RD   (inverted)
+                      ;       CA1 nc
+                      ;       CA2 PRG8
+                      ;       CB1 PRG5
+                      ;       CB2 ROM B0
+ 
+                      IDE_CART_PIA0 equ $FF40
+                      IDE_CART_PIA1 equ $FF44
+ 
+                      PIA_0_A_DATA     equ  IDE_CART_PIA0
+                      PIA_0_A_CONTROL  equ  IDE_CART_PIA0+1
+                      PIA_0_B_DATA     equ  IDE_CART_PIA0+2
+                      PIA_0_B_CONTROL  equ  IDE_CART_PIA0+3
+                      PIA_1_A_DATA     equ  IDE_CART_PIA1
+                      PIA_1_A_CONTROL  equ  IDE_CART_PIA1+1
+                      PIA_1_B_DATA     equ  IDE_CART_PIA1+2
+                      PIA_1_B_CONTROL  equ  IDE_CART_PIA1+3
+ 
+                      ; The Development-cartridge hardware uses a single PIA 
+port to control the
+                      ; IDE signals. The bits of Port B of the 2nd PIA is 
+mapped as follows. Write
+                      ; to address PIA_1_B_DATA to control the IDE signals 
+(note that the upper 4 signals
+                      ; are inverted).
+ 
+                      ; Ports A and B of the 1st PIA are connected to the 
+IDE's 16-bit data bus
+                      ; with B being the LSB and A being the MSB.
+ 
+                      ; When idle, the CONTROL should be 0 (everything 
+unasserted)
+ 
+                      ; PB0 = A0
+                      ; PB1 = A1
+                      ; PB2 = A2
+                      ; PB3 = (data write in 1st round)
+                      ; PB4 = * CS1P [C] (Assert for command access)
+                      ; PB5 = * CS3P [m] (Master/Slave select ... keep 
+unasserted)
+                      ; PB6 = * WR [W]
+                      ; PB7 = * RD [R]
+                      ;                                       RWmC -AAA
+                      IDECONTROL_ADDR_MASK         equ $0   ; 0000 0000
+                      IDECONTROL_ADDR_CS_MASK      equ $10  ; 0001 0000
+                      IDECONTROL_ADDR_CS_WR_MASK   equ $50  ; 0101 0000
+                      IDECONTROL_ADDR_CS_RD_MASK   equ $90  ; 1001 0000
+ 
+                      ;IDE_CART_INIT:
+                      ; This twiddles the bits to select ROM bank 0 ... of 
+course this code is
+                      ; stored in bank 0, which means bank 0 is already 
+selected, so nothing
+                      ; should change.
+                      ;        LDA  #0
+                      ;        STA  IDE_CART_PIA0   ; IDE Data bus ...
+                      ;        STA  IDE_CART_PIA0+2 ; ... as inputs            
+        
+                      ;        STA  IDE_CART_PIA1   ; PRG port as inputs
+                      ;        LDA  #255
+                      ;        STA  IDE_CART_PIA1+2 ; IDE Control lines as 
+outputs        
+                      ;        LDA  #$34            ; 0011 0100 (CA2 and CB2 
+output 0 to ROM B0, B1)
+                      ;        STA  IDE_CART_PIA0+1 ; Switch in the PIA ...
+                      ;        STA  IDE_CART_PIA0+3 ; ... registers and ...
+                      ;        STA  IDE_CART_PIA1+1 ; ... set Cx2s as ...
+                      ;        STA  IDE_CART_PIA1+3 ; ... outputs (output = 1)
+                      ;        RTS
+ 
+ 
+                      ; ATA Register numbers (IDE addresses)
+                      ;
+                      ATA_REG_DATA                 equ $0
+                      ATA_ERROR_FEATURE_REGISTER   equ $1
+                      ATA_REG_SECTORCOUNT          equ $2
+                      ATA_REG_SECTORNUM            equ $3
+                      ATA_REG_CYLINDERLOW          equ $4
+                      ATA_REG_CYLINDERHIGH         equ $5
+                      ATA_REG_DRIVEHEAD            equ $6
+                      ATA_REG_STATUS_COMMAND       equ $7
+ 
+                              org     ROM_CART       ; 0xC000 is the start of 
+the cartridge ROM
+ 
+ C000 160347                  LBRA    OS_LOADER_APPLICATION
+ 
+                      RAMRUN_APPLICATION:
+ C003 1700D4                  LBSR     IDE_CART_INIT  ; Set the data direction 
+on the cartridge ports   
+                      TOP:
+ C006 8D17                    BSR     ReadWord       ; Read the destination
+ C008 1F01                    TFR     D,X            ; Use for loading
+ C00A 1F03                    TFR     D,U            ; Use for executing
+ C00C 8D11                    BSR     ReadWord       ; Read the length of the 
+data
+ C00E 1F02                    TFR     D,Y            ; Into an index
+ C010 8D18            L1:     BSR     ReadByte       ; Read the data byte
+ C012 A780                    STA     ,X+            ; Store the data to RAM
+ C014 B70400                  STA     $400           ; Visual progress
+ C017 313F                    LEAY    -1,Y           ; Decrement the count
+ C019 26F5                    BNE     L1             ; Go back to load all
+ C01B ADC4                    JSR     ,U             ; Execute the loaded code
+ C01D 20E7                    BRA     TOP            ; If we should get back, 
+start over
+ 
+                      ReadWord:
+ C01F 8D09                    BSR     ReadByte       ; Read MSB
+ C021 3402                    PSHS    A              ; Hold it
+ C023 8D05                    BSR     ReadByte       ; Read LSB
+ C025 1F89                    TFR     A,B            ; Into B
+ C027 3502                    PULS    A              ; MSB to A
+ C029 39                      RTS                    ; Word returned in D
+ 
+                      ReadByte:
+ C02A 3410                    PSHS    X              ; We will mangle ...
+ C02C 3404                    PSHS    B              ; ... these
+ C02E 8E0002                  LDX     #2             ; Two groups of 4 bits to 
+load
+ C031 8600                    LDA     #0             ; Initial return value
+ C033 F6FF44          RB_1:   LDB     IDE_CART_PIA1  ; Read the loader port
+ C036 C470                    ANDB    #$70           ; We only want these 
+three bits
+ C038 C140                    CMPB    #$40           ; Test the clock bit
+ C03A 25F7                    BLO     RB_1           ; Loop back until the 
+clock is 1
+ C03C 56                      RORB                   ; Shift ...
+ C03D 56                      RORB                   ; ... D1 ...
+ C03E 56                      RORB                   ; ... into ...
+ C03F 56                      RORB                   ; ... carry ...
+ C040 56                      RORB                   ; ... flag
+ C041 49                      ROLA                   ; Shift D1 into A
+ C042 56                      RORB                   ; Shift D0 into carry
+ C043 49                      ROLA                   ; Shift D0 into A
+ C044 F6FF44          RB_2:   LDB     IDE_CART_PIA1  ; Read the loader port
+ C047 C470                    ANDB    #$70           ; We only want these 
+three bits
+ C049 C140                    CMPB    #$40           ; Test the clock bit
+ C04B 2CF7                    BGE     RB_2           ; Loop back until the 
+clock is 0
+ C04D 56                      RORB                   ; Shift ...
+ C04E 56                      RORB                   ; ... D1 ...
+ C04F 56                      RORB                   ; ... into ...
+ C050 56                      RORB                   ; ... carry ...
+ C051 56                      RORB                   ; ... flag
+ C052 49                      ROLA                   ; Shift D1 into A
+ C053 56                      RORB                   ; Shift D0 into carry
+ C054 49                      ROLA                   ; Shift D0 into A
+ C055 301F                    LEAX    -1,X           ; All groups of 2 done?
+ C057 26DA                    BNE     RB_1           ; No ... go back
+ C059 3504                    PULS    B              ; Restore ...
+ C05B 3510                    PULS    X              ; ... B and X      
+ C05D 39                      RTS                    
+ 
+ 
+                      ; Taking care not to modify the bits around the output 
+bit so
+                      ; we can bitbang the IDE remotely
+ 
+                      WriteByte:
+ C05E 3410                    PSHS    X              ; We will mangle ...
+ C060 3404                    PSHS    B              ; ... these
+ C062 8E0004                  LDX     #4             ; Four groups of 2 bits
+ C065 49              WB_3:   ROLA                   ; Get data bit ...
+ C066 59                      ROLB                   ; ... into ...
+ C067 59                      ROLB                   ; ... B3 ...
+ C068 59                      ROLB                   ; ... for ...
+ C069 59                      ROLB                   ; ... output
+ C06A C408                    ANDB    #$08           ; There are other outputs 
+here 
+ C06C 3404                    PSHS    B               ; Hold our bit-change
+ C06E F6FF46                  LDB     IDE_CART_PIA1+2 ; Get the current output 
+value of the port
+ C071 C4F7                    ANDB    #$FF-8          ; Mask off our bit spot
+ C073 EAE0                    ORB     ,S+             ; Add in our bit
+ C075 F7FF46                  STB     IDE_CART_PIA1+2  ; Write the bit out     
+   
+ C078 F6FF44          WB_1:   LDB     IDE_CART_PIA1  ; Wait ...
+ C07B C470                    ANDB    #$70           ; ... for ...
+ C07D C140                    CMPB    #$40           ; ... clock to ...
+ C07F 25F7                    BLO     WB_1           ; ... go high
+ C081 49                      ROLA                   ; Get data bit ...
+ C082 59                      ROLB                   ; ... into ...
+ C083 59                      ROLB                   ; ... B3 ...
+ C084 59                      ROLB                   ; ... for ...
+ C085 59                      ROLB                   ; ... output
+ C086 C408                    ANDB    #$08           ; There are other outputs 
+here
+ C088 3404                    PSHS    B               ; Hold our bit-change
+ C08A F6FF46                  LDB     IDE_CART_PIA1+2 ; Get the current output 
+value of the port
+ C08D C4F7                    ANDB    #$FF-8          ; Mask off our bit spot
+ C08F EAE0                    ORB     ,S+             ; Add in our bit
+ C091 F7FF46                  STB     IDE_CART_PIA1+2  ; Write the bit out     
+    
+ C094 F6FF44          WB_2:   LDB     IDE_CART_PIA1  ; Wait ...
+ C097 C470                    ANDB    #$70           ; ... for ...
+ C099 C140                    CMPB    #$40           ; ... clock to ...
+ C09B 2CF7                    BGE     WB_2           ; ... go high
+ C09D 301F                    LEAX    -1,X           ; All bits done?
+ C09F 26C4                    BNE     WB_3           ; No ... do them all
+ C0A1 3504                    PULS    B              ; Restore ...
+ C0A3 3510                    PULS    X              ; ... B and X
+ C0A5 39                      RTS
+ 
+                      ;=========================================================
+==================
+                      EXECUTE_ROM_BANK:
+ C0A6 3402                    PSHS    A              ; Hold the bank number
+ C0A8 8EC0C4                  LDX     #SELECT_ROM_BANK ; Code in ROM
+ C0AB CE4000                  LDU     #$4000         ; Destination in RAM
+ C0AE 108E0016                LDY     #SRB_DONE-SELECT_ROM_BANK ; Calculate 
+size of the routine
+ C0B2 A680            DRB_1:  LDA     ,X+            ; Move ...
+ C0B4 A7C0                    STA     ,U+            ; ... code ...
+ C0B6 313F                    LEAY    -1,Y           ; ... to ...
+ C0B8 26F8                    BNE     DRB_1          ; ... RAM
+ C0BA 3502                    PULS    A              ; Restore the bank
+ C0BC 8EC000                  LDX     #$C000         ; Set return address ...
+ C0BF 3410                    PSHS    X              ; ... to ROM start
+ C0C1 7E4000                  JMP     $4000          ; Switch banks and go to 
+the start        
+ 
+                      ;=========================================================
+==================
+                      SELECT_ROM_BANK:
+                      ; You MUST run this from RAM since the ROM bank will 
+change
+ C0C4 1F89                    TFR     A,B            ; Hold this
+ C0C6 49                      ROLA                   ; Bit-0 shifted ...
+ C0C7 49                      ROLA                   ; ... to ....
+ C0C8 49                      ROLA                   ; ... bit 3
+ C0C9 8408                    ANDA    #8             ; All we want is the one 
+bit
+ C0CB 8A34                    ORA     #$34           ; Mask in the other 
+control bits
+ C0CD 59                      ROLB                   ; Bit-1 shifted ...
+ C0CE 59                      ROLB                   ; ... to bit 3
+ C0CF C408                    ANDB    #8             ; All we want is the one 
+bit
+ C0D1 CA34                    ORB     #$34           ; Mask in the other 
+control bits
+ C0D3 B7FF47                  STA     IDE_CART_PIA1+3 ; Set CB2 to output bit 
+0 of the bank number
+ C0D6 F7FF43                  STB     IDE_CART_PIA0+3 ; Set CB2 to output bit 
+1 of the bank number
+ C0D9 39                      RTS
+                      SRB_DONE:
+ 
+                      ;=========================================================
+==================
+                      IDE_CART_INIT:
+                      ; This twiddles the bits to select ROM bank 0 ... of 
+course this code is
+                      ; stored in bank 0, which means bank 0 is already 
+selected, so nothing
+                      ; should change.
+ C0DA 8600                    LDA  #0
+ C0DC B7FF40                  STA  IDE_CART_PIA0     ; IDE Data bus ...
+ C0DF B7FF42                  STA  IDE_CART_PIA0+2   ; ... as inputs           
+                
+ C0E2 B7FF44                  STA  IDE_CART_PIA1     ; PRG inputs
+ C0E5 86FF                    LDA  #$FF
+ C0E7 B7FF46                  STA  IDE_CART_PIA1+2   ; IDE Control lines as 
+outputs        
+ C0EA 8634                    LDA  #$34              ; 0011 0100 (CA2 and CB2 
+output 0 to ROM B0, B1)
+ C0EC B7FF41                  STA  IDE_CART_PIA0+1   ; Switch in the PIA ...
+ C0EF B7FF43                  STA  IDE_CART_PIA0+3   ; ... registers and ...
+ C0F2 B7FF45                  STA  IDE_CART_PIA1+1   ; ... set Cx2s as ...
+ C0F5 B7FF47                  STA  IDE_CART_PIA1+3   ; ... outputs (output = 
+1)
+ C0F8 39                      RTS
+ 
+                      ;=========================================================
+==================
+                      DOALLRAM:
+ C0F9 8EC10F                  LDX     #ALLRAM        ; Code in ROM
+ C0FC CE4000                  LDU     #$4000         ; Destination in RAM
+ C0FF 108E0019                LDY     #ARDONE-ALLRAM ; Calculate size of 
+ALLRAM routine
+ C103 A680            DAR_1:  LDA     ,X+            ; Move ...
+ C105 A7C0                    STA     ,U+            ; ... code ...
+ C107 313F                    LEAY    -1,Y           ; ... to ...
+ C109 26F8                    BNE     DAR_1          ; ... RAM
+ C10B BD4000                  JSR     $4000          ; Call the ALLRAM routine 
+in RAM
+ C10E 39                      RTS
+ 
+                      ;=========================================================
+==================
+                      ALLRAM:
+ C10F 3401                    PSHS    CCR            ; Save interrupt status
+ C111 1A50                    ORCC    #$50           ; Turn off interrupts
+ C113 8E8000                  LDX     #$8000         ; Start of ROM
+ C116 B7FFDE          AR_1:   STA     SAM_ALL_RAM    ; Switch ROM bank ON
+ C119 A684                    LDA     ,X             ; Get value from ROM
+ C11B B7FFDF                  STA     SAM_ALL_RAM+1  ; Switch ROM bank OFF
+ C11E A780                    STA     ,X+            ; Store value to RAM 
+under ROM bank
+ C120 8CFF00                  CMPX    #$FF00         ; Reached the end of the 
+upper 32K?
+ C123 26F1                    BNE     AR_1           ; No ... go back for more
+ C125 3501                    PULS    CCR            ; Restore interrupts
+ C127 39                      RTS
+                      ARDONE:
+ 
+                      ;=========================================================
+==================
+ 
+                      ; Remember ... when POKING FF46, be sure to keep B3 
+(output) as 0
+ 
+                      ADBUS_APPLICATION:
+ C128 8DB0                     BSR     IDE_CART_INIT  ; Set the data direction 
+on the cartridge ports 
+ 
+                      ADBUS:
+ C12A 17FEFD                  LBSR    ReadByte       ; Get the command
+ C12D 8101                    CMPA    #1             ; POKE?
+ C12F 10270068                LBEQ     ADBUS_POKE     ; Do POKE
+ C133 8102                    CMPA    #2             ; PEEK?
+ C135 1027006E                LBEQ     ADBUS_PEEK     ; Do PEEK
+ 
+ C139 8109                    CMPA    #9
+ C13B 1027001E                LBEQ     ADBUS_READSECTOR
+ C13F 810A                    CMPA    #10
+ C141 10270037                LBEQ     ADBUS_WRITESECTOR
+ C145 810B                    CMPA    #11
+ C147 10270001                LBEQ    ADBUS_DRIVEINFO
+ 
+ C14B 39                      RTS                    ; Unknown command ... 
+done
+ 
+                      ADBUS_DRIVEINFO:
+ C14C 17FEDB                  LBSR   ReadByte
+ C14F 3404                    PSHS   B
+ C151 17FECB                  LBSR   ReadWord
+ C154 1F03                    TFR    D,U
+ C156 3504                    PULS   B
+ C158 17016D                  LBSR   DRIVE_INFO
+ C15B 20CD                    BRA    ADBUS       
+ 
+                      ADBUS_READSECTOR:
+ C15D 17FECA                  LBSR   ReadByte
+ C160 3404                    PSHS   B
+ C162 17FEBA                  LBSR   ReadWord
+ C165 3406                    PSHS   D
+ C167 17FEB5                  LBSR   ReadWord
+ C16A 3406                    PSHS   D
+ C16C 17FEB0                  LBSR   ReadWord
+ C16F 1F03                    TFR    D,U
+ C171 3520                    PULS   Y
+ C173 3510                    PULS   X
+ C175 3504                    PULS   B
+ C177 17017B                  LBSR   READ_SECTOR
+ C17A 20AE                    BRA    ADBUS
+ 
+                      ADBUS_WRITESECTOR:
+ C17C 17FEAB                  LBSR   ReadByte
+ C17F 3404                    PSHS   B
+ C181 17FE9B                  LBSR   ReadWord
+ C184 3406                    PSHS   D
+ C186 17FE96                  LBSR   ReadWord
+ C189 3406                    PSHS   D
+ C18B 17FE91                  LBSR   ReadWord
+ C18E 1F03                    TFR    D,U
+ C190 3520                    PULS   Y
+ C192 3510                    PULS   X
+ C194 3504                    PULS   B
+ C196 170186                  LBSR   WRITE_SECTOR
+ C199 208F                    BRA    ADBUS
+ 
+                      ADBUS_POKE:
+ C19B 17FE81                  LBSR    ReadWord       ; Address
+ C19E 1F01                    TFR     D,X            ; Hold it
+ C1A0 17FE87                  LBSR    ReadByte       ; Get the value
+ C1A3 A784                    STA     ,X             ; Store it
+ C1A5 2083                    BRA     ADBUS          ; Back to top
+ 
+                      ADBUS_PEEK:
+ C1A7 17FE75                  LBSR    ReadWord       ; Address
+ C1AA 1F01                    TFR     D,X            ; Hold it
+ C1AC A684                    LDA     ,X             ; Get the value from 
+address
+ C1AE 17FEAD                  LBSR    WriteByte      ; Send it back to host
+ C1B1 16FF76                  LBRA     ADBUS          ; Back to top
+ 
+                      ;=========================================================
+==================
+                      SET_DATABUS_DIRECTION: ; Value in B
+ C1B4 3406              PSHS   D                  ; Hold for a secondpoke 
+1025,
+ C1B6 B6FF41            LDA    PIA_0_A_CONTROL    ; Control for 0PA
+ C1B9 84FB              ANDA   #$FF-4             ; Turn off bit 1
+ C1BB B7FF41            STA    PIA_0_A_CONTROL    ; DDR now active
+ C1BE F7FF40            STB    PIA_0_A_DATA       ; Set direction
+ C1C1 8A04              ORA    #4                 ; DDR now ...
+ C1C3 B7FF41            STA    PIA_0_A_CONTROL    ; ... inactive
+ C1C6 B6FF43            LDA    PIA_0_B_CONTROL    ; Control for 0PB
+ C1C9 84FB              ANDA   #$FF-4             ; Turn off bit 1
+ C1CB B7FF43            STA    PIA_0_B_CONTROL    ; DDR now active
+ C1CE F7FF42            STB    PIA_0_B_DATA       ; Set direction
+ C1D1 8A04              ORA    #4                 ; DDR now ...
+ C1D3 B7FF43            STA    PIA_0_B_CONTROL    ; ... inactive
+ C1D6 3506              PULS   D
+ C1D8 39                RTS
+ 
+                      ;=========================================================
+==================
+                      WRITE_IDE_REGISTER: ; A=address, X=value
+                      ; Set 16-bit data bus as output
+                      ; Data bus MSB = X
+                      ; Data bus LSB = X
+                      ; CONTROL = IDECONTROL_ADDR_CS_MASK    | address (ADDR + 
+CS0)
+                      ; CONTROL = IDECONTROL_ADDR_CS_WR_MASK | address (ADDR + 
+CS0 + WR)
+                      ; CONTROL = IDECONTROL_ADDR_CS_MASK    | address (ADDR + 
+CS0)
+                      ; CONTROL = IDECONTROL_ADDR_MASK       | address (ADDR)
+                      ; Set 16-bit data bus as input
+ C1D9 3406              PSHS   D                  ; Preserve for caller
+ 
+ C1DB 3402              PSHS   A
+                        
+ C1DD C6FF              LDB    #255
+ C1DF 8DD3              BSR    SET_DATABUS_DIRECTION
+ 
+ C1E1 1F10              TFR    X,D
+ C1E3 B7FF40            STA    PIA_0_A_DATA      ; Data -- MSB  
+ C1E6 F7FF42            STB    PIA_0_B_DATA      ; Data -- LSB
+                        
+ C1E9 3502              PULS   A                
+ 
+                        ; CS, CS-WR, CS, OFF
+ C1EB 1F89              TFR    A,B
+ C1ED CA10              ORB    #IDECONTROL_ADDR_CS_MASK
+ C1EF F7FF46            STB    PIA_1_B_DATA
+ 
+ C1F2 1F89              TFR    A,B
+ C1F4 CA50              ORB    #IDECONTROL_ADDR_CS_WR_MASK
+ C1F6 F7FF46            STB    PIA_1_B_DATA
+ 
+ C1F9 1F89              TFR    A,B
+ C1FB CA10              ORB    #IDECONTROL_ADDR_CS_MASK
+ C1FD F7FF46            STB    PIA_1_B_DATA
+ 
+ C200 1F89              TFR    A,B
+ C202 CA00              ORB    #IDECONTROL_ADDR_MASK
+ C204 F7FF46            STB    PIA_1_B_DATA
+ 
+ C207 C600              LDB    #0
+ C209 8DA9              BSR    SET_DATABUS_DIRECTION
+ 
+ C20B 3506              PULS   D
+ C20D 39                RTS
+ 
+                      ;=========================================================
+==================
+                      READ_IDE_REGISTER: ; A=address, X=value
+                      ; CONTROL = IDECONTROL_ADDR_CS_MASK    | address (ADDR + 
+CS0)
+                      ; CONTROL = IDECONTROL_ADDR_CS_RD_MASK | address (ADDR + 
+CS0 + RD)
+                      ; X = Data bus LSB
+                      ; X = Data bus MSB
+                      ; CONTROL = IDECONTROL_ADDR_MASK       | address (ADDR)
+ C20E 3404              PSHS   B
+ C210 1F89              TFR    A,B
+ C212 CA10              ORB    #IDECONTROL_ADDR_CS_MASK
+ C214 F7FF46            STB    PIA_1_B_DATA
+ 
+ C217 1F89              TFR    A,B
+ C219 CA90              ORB    #IDECONTROL_ADDR_CS_RD_MASK
+ C21B F7FF46            STB    PIA_1_B_DATA
+ 
+ C21E 3402              PSHS   A
+ C220 B6FF40            LDA    PIA_0_A_DATA
+ C223 F6FF42            LDB    PIA_0_B_DATA
+ C226 1F01              TFR    D,X
+ C228 3502              PULS   A
+ 
+ C22A 1F89              TFR    A,B
+ C22C CA00              ORB    #IDECONTROL_ADDR_MASK
+ C22E F7FF46            STB    PIA_1_B_DATA
+ 
+ C231 3504              PULS   B
+ C233 39                RTS
+ 
+                      ;=========================================================
+==================
+                      PULL_BUFFER: ; Y = destination
+ C234 3410              PSHS  X
+ C236 3420              PSHS  Y
+ C238 3406              PSHS  D
+ C23A C600              LDB   #0
+ C23C 8600              LDA   #ATA_REG_DATA
+                      PBU_1:
+ C23E 8DCE              BSR   READ_IDE_REGISTER
+ C240 1E10              EXG   X,D
+ C242 1E89              EXG   A,B
+ C244 1E10              EXG   X,D
+ C246 AFA1              STX   ,Y++
+ C248 5A                DECB
+ C249 26F3              BNE   PBU_1
+ C24B 3506              PULS  D
+ C24D 3520              PULS  Y
+ C24F 3510              PULS  X
+ C251 39                RTS
+ 
+                      ;=========================================================
+==================
+                      PUSH_BUFFER: ; Y = source
+ C252 3410              PSHS  X
+ C254 3420              PSHS  Y
+ C256 3406              PSHS  D
+ C258 C600              LDB   #0
+ C25A 8600              LDA   #ATA_REG_DATA
+                      PSB_1:
+ C25C AEA1              LDX   ,Y++
+ C25E 1E10              EXG   X,D
+ C260 1E89              EXG   A,B
+ C262 1E10              EXG   X,D
+ C264 17FF72            LBSR   WRITE_IDE_REGISTER
+ C267 5A                DECB
+ C268 26F2              BNE   PSB_1
+ C26A 3506              PULS  D
+ C26C 3520              PULS  Y
+ C26E 3510              PULS  X
+ C270 39                RTS
+ 
+                      ;=========================================================
+==================
+                      PREP_SECTOR_ACCESS: ; B=Drive, X=SectorMSW, Y=SectorLSW
+                      ; int a = (0x0E | (drive&1))<<4;
+                      ; writeRegister8(ATA_REG_SECTORCOUNT,1);
+                      ; writeRegister8(ATA_REG_SECTORNUM,       sector      
+&0xFF      );
+                      ; writeRegister8(ATA_REG_CYLINDERLOW,    (sector>>8)  
+&0xFF      );
+                      ; writeRegister8(ATA_REG_CYLINDERHIGH,   (sector>>16) 
+&0xFF      );  
+                      ; writeRegister8(ATA_REG_DRIVEHEAD,     ((sector>>24) 
+&0x0F) | a );
+ C271 C401              ANDB   #1
+ C273 CA0E              ORB    #$0E
+ C275 58                LSLB
+ C276 58                LSLB
+ C277 58                LSLB
+ C278 58                LSLB
+ C279 3404              PSHS   B
+ 
+ C27B 3410              PSHS   X ; We'll be using X, but we need it later
+ C27D 3410              PSHS   X ; In fact, we'll need it twice
+ 
+ C27F 8E0001            LDX    #1  
+ C282 8602              LDA    #ATA_REG_SECTORCOUNT  ; 2
+ C284 17FF52            LBSR   WRITE_IDE_REGISTER
+ 
+ C287 1F21              TFR    Y,X   
+ C289 8603              LDA    #ATA_REG_SECTORNUM    ; 3
+ C28B 17FF4B            LBSR   WRITE_IDE_REGISTER
+ 
+ C28E 1F20              TFR    Y,D
+ C290 1F89              TFR    A,B
+ C292 1F01              TFR    D,X
+ C294 8604              LDA    #ATA_REG_CYLINDERLOW  ; 4
+ C296 17FF40            LBSR   WRITE_IDE_REGISTER
+                        
+ C299 3510              PULS   X
+ C29B 8605              LDA    #ATA_REG_CYLINDERHIGH ; 5
+ C29D 17FF39            LBSR   WRITE_IDE_REGISTER
+ 
+ C2A0 3510              PULS   X
+ C2A2 1F10              TFR    X,D
+ C2A4 1F89              TFR    A,B  
+ C2A6 C40F              ANDB   #$0F
+ C2A8 EAE0              ORB    ,S+ 
+ C2AA 1F01              TFR    D,X 
+ C2AC 8606              LDA    #ATA_REG_DRIVEHEAD    ; 6
+ C2AE 17FF28            LBSR   WRITE_IDE_REGISTER
+ C2B1 39                RTS
+ 
+                      ;=========================================================
+==================
+                      WAIT_FOR_READY:
+ C2B2 3406              PSHS   D
+ C2B4 3410              PSHS   X
+                      WFR_1:
+ C2B6 8607              LDA    #ATA_REG_STATUS_COMMAND
+ C2B8 17FF53            LBSR   READ_IDE_REGISTER  ; Read the status register
+ C2BB 1F10              TFR    X,D
+ C2BD C4D0              ANDB   #$D0             ; Mask off our area
+ C2BF C150              CMPB   #$50             ; Ready?
+ C2C1 26F3              BNE    WFR_1            ; No ... wait
+ C2C3 3510              PULS   X
+ C2C5 3506              PULS   D                
+ C2C7 39                RTS
+ 
+                      ;=========================================================
+==================
+                      DRIVE_INFO: ; B=Drive, U=Buffer
+ C2C8 3402              PSHS   A
+ C2CA 3410              PSHS   X
+ C2CC 3440              PSHS   U
+ C2CE 8DE2              BSR   WAIT_FOR_READY
+ C2D0 C401              ANDB   #1
+ C2D2 CA0E              ORB    #$0E
+ C2D4 58                LSLB
+ C2D5 58                LSLB
+ C2D6 58                LSLB
+ C2D7 58                LSLB
+ C2D8 1F01              TFR    D,X  
+ C2DA 8606              LDA    #ATA_REG_DRIVEHEAD
+ C2DC 17FEFA            LBSR   WRITE_IDE_REGISTER
+ C2DF 8E00EC            LDX    #$EC
+ C2E2 8607              LDA    #ATA_REG_STATUS_COMMAND
+ C2E4 17FEF2            LBSR   WRITE_IDE_REGISTER
+ C2E7 8DC9              BSR   WAIT_FOR_READY
+ C2E9 1F32              TFR    U,Y
+ C2EB 17FF46            LBSR   PULL_BUFFER
+ C2EE 3540              PULS   U
+ C2F0 3510              PULS   X
+ C2F2 3502              PULS   A
+ C2F4 39                RTS
+ 
+                      ;=========================================================
+==================
+                      READ_SECTOR: ; B=Drive, X=SectorMSW, Y=SectorLSW, 
+U=Buffer (return status in B)
+                      ; waitForReady();
+                      ; PREP
+                      ; writeRegister8(ATA_REG_STATUS_COMMAND,0x20);
+                      ; waitForReady();
+                      ; pullBuffer(buffer);
+                      ; a = readRegister8(ATA_REG_STATUS_COMMAND);
+                      ; return a;
+ C2F5 3402              PSHS   A
+ C2F7 3410              PSHS   X
+ C2F9 3420              PSHS   Y
+ C2FB 3440              PSHS   U
+ C2FD 8DB3              BSR   WAIT_FOR_READY
+ C2FF 17FF6F            LBSR    PREP_SECTOR_ACCESS
+ C302 8E0020            LDX    #$20
+ C305 8607              LDA    #ATA_REG_STATUS_COMMAND
+ C307 17FECF            LBSR   WRITE_IDE_REGISTER
+ C30A 8DA6              BSR   WAIT_FOR_READY
+ C30C 1F32              TFR    U,Y
+ C30E 17FF23            LBSR   PULL_BUFFER
+ C311 8607              LDA    #ATA_REG_STATUS_COMMAND
+ C313 17FEF8            LBSR   READ_IDE_REGISTER
+ C316 3540              PULS   U
+ C318 3520              PULS   Y
+ C31A 3510              PULS   X
+ C31C 3502              PULS   A  
+ C31E 39                RTS
+ 
+                      ;=========================================================
+==================
+                      WRITE_SECTOR: ; B=Drive, X=SectorMSW, Y=BufferLSW, 
+U=Buffer (return status in B)
+                      ; int a = (0x0E | (drive&1))<<4;
+                      ; waitForReady();
+                      ; PREP
+                      ; writeRegister8(ATA_REG_STATUS_COMMAND,0x30);
+                      ; waitForReady();  
+                      ; pushBuffer(buffer);
+                      ; a = readRegister8(ATA_REG_STATUS_COMMAND);
+                      ; return a;
+ 
+ C31F 3402              PSHS   A
+ C321 3410              PSHS   X
+ C323 3420              PSHS   Y
+ C325 3440              PSHS   U
+ C327 8D89              BSR   WAIT_FOR_READY
+ C329 17FF45            LBSR   PREP_SECTOR_ACCESS
+ C32C 8E0030            LDX    #$30
+ C32F 8607              LDA    #ATA_REG_STATUS_COMMAND
+ C331 17FEA5            LBSR   WRITE_IDE_REGISTER
+ C334 17FF7B            LBSR   WAIT_FOR_READY
+ C337 1F32              TFR    U,Y
+ C339 17FF16            LBSR   PUSH_BUFFER
+ C33C 8607              LDA    #ATA_REG_STATUS_COMMAND
+ C33E 17FECD            LBSR   READ_IDE_REGISTER
+ C341 3540              PULS   U
+ C343 3520              PULS   Y
+ C345 3510              PULS   X
+ C347 3502              PULS   A 
+ C349 39                RTS  
+ 
+                      ;=========================================================
+==================
+ 
+                      OS_LOADER_APPLICATION:
+ 
+ C34A 17FD8D            LBSR     IDE_CART_INIT  ; Set the data direction on 
+the cartridge ports 
+ 
+ C34D 8E0000            LDX    #0      ; Start looking with ...  
+ C350 108E0230          LDY    #528+32 ; ... sector 528 (first data sector for 
+my 256M formatted for FAT)
+ C354 C600              LDB    #0      ; Drive 0 (MASTER)
+ C356 F70400            STB    1024
+ C359 CE0600            LDU    #$600   ; Destination buffer
+ 
+                      OS_LOAD_A:  
+ 
+ C35C 8D97              BSR    READ_SECTOR
+ C35E 7C0400            INC    1024
+ 
+ C361 A6C4              LDA    0,U
+ C363 8143              CMPA   #'C'
+ C365 261E              BNE    MOVE_ON
+ C367 A641              LDA    1,U
+ C369 814F              CMPA   #'O'
+ C36B 2618              BNE    MOVE_ON
+ C36D A642              LDA    2,U
+ C36F 8143              CMPA   #'C'
+ C371 2612              BNE    MOVE_ON
+ C373 A643              LDA    3,U
+ C375 814F              CMPA   #'O'
+ C377 260C              BNE    MOVE_ON
+ C379 A644              LDA    4,U
+ C37B 814F              CMPA   #'O'
+ C37D 2606              BNE    MOVE_ON
+ C37F A645              LDA    5,U
+ C381 8153              CMPA   #'S'
+ C383 270A              BEQ    FOUND
+ 
+                      MOVE_ON:
+ C385 3121              LEAY   1,Y
+ C387 26D3              BNE    OS_LOAD_A
+ 
+                      ; NO OS FILE ON DISK
+ C389 86FE              LDA    #254
+ C38B B70400            STA    1024
+ C38E 39                RTS
+ 
+                      FOUND:
+ C38F 7C0401            INC    1025
+ C392 8E1000            LDX    #$1000
+                        
+                      F1: 
+ C395 A6C0              LDA    ,U+
+ C397 A780              STA    ,X+
+ C399 11830800          CMPU   #$600+512
+ C39D 26F6              BNE    F1
+ C39F 8C3000            CMPX   #$3000
+ C3A2 2714              BEQ    OS_DONE
+ 
+ C3A4 3410              PSHS  X
+ C3A6 8E0000            LDX   #0
+ C3A9 CE0600            LDU   #$600
+ C3AC 3121              LEAY  1,Y
+ C3AE 17FF44            LBSR   READ_SECTOR
+ C3B1 7C0402            INC   1026
+ C3B4 3510              PULS  X
+ C3B6 20DD              BRA   F1
+ 
+                      OS_DONE:
+ C3B8 BD1006            JSR   $1006
+ C3BB 39                RTS
+ 
+
+SYMBOL TABLE
+     ADBUS 02 C12A ADBUS_APPLICATION 02 C128 ADBUS_DRIVEINFO 02 C14C 
+ADBUS_PEEK 02 C1A7
+ ADBUS_POKE 02 C19B ADBUS_READSECTOR 02 C15D ADBUS_WRITESECTOR 02 C17C    
+ALLRAM 02 C10F
+    ARDONE 02 C128      AR_1 02 C116 ATA_ERROR_FEATURE_REGISTER 00 0001 
+ATA_REG_CYLINDERHIGH 00 0005
+ ATA_REG_CYLINDERLOW 00 0004 ATA_REG_DATA 00 0000 ATA_REG_DRIVEHEAD 00 0006 
+ATA_REG_SECTORCOUNT 00 0002
+ ATA_REG_SECTORNUM 00 0003 ATA_REG_STATUS_COMMAND 00 0007     DAR_1 02 C103  
+DOALLRAM 02 C0F9
+     DRB_1 02 C0B2 DRIVE_INFO 02 C2C8 EXECUTE_ROM_BANK 02 C0A6        F1 02 
+C395
+     FOUND 02 C38F IDECONTROL_ADDR_CS_MASK 00 0010 IDECONTROL_ADDR_CS_RD_MASK 
+00 0090 IDECONTROL_ADDR_CS_WR_MASK 00 0050
+ IDECONTROL_ADDR_MASK 00 0000 IDE_CART_INIT 02 C0DA IDE_CART_PIA0 00 FF40 
+IDE_CART_PIA1 00 FF44
+        L1 02 C010   MOVE_ON 02 C385   OS_DONE 02 C3B8 OS_LOADER_APPLICATION 
+02 C34A
+ OS_LOAD_A 02 C35C     PBU_1 02 C23E     PIA_0 00 FF00 PIA_0_A_CONTROL 00 FF41
+ PIA_0_A_DATA 00 FF40 PIA_0_B_CONTROL 00 FF43 PIA_0_B_DATA 00 FF42     PIA_1 
+00 FF20
+ PIA_1_A_CONTROL 00 FF45 PIA_1_A_DATA 00 FF44 PIA_1_B_CONTROL 00 FF47 
+PIA_1_B_DATA 00 FF46
+  PIA_CART 00 FF40 PREP_SECTOR_ACCESS 02 C271     PSB_1 02 C25C PULL_BUFFER 02 
+C234
+ PUSH_BUFFER 02 C252 RAMRUN_APPLICATION 02 C003      RB_1 02 C033      RB_2 02 
+C044
+  READBYTE 02 C02A  READWORD 02 C01F READ_IDE_REGISTER 02 C20E READ_SECTOR 02 
+C2F5
+ ROM_BASIC 00 A000 ROM_BLKIN 00 A006 ROM_BLKOUT 00 A008  ROM_CART 00 C000
+ ROM_CHROUT 00 A002 ROM_CSRDON 00 A004 ROM_EXTENDED 00 8000 ROM_JOYIN 00 A00A
+ ROM_POLCAT 00 A000 SAM_ALL_RAM 00 FFDE SAM_CPU_RATE 00 FFD6 
+SAM_DISPLAY_OFFSET 00 FFC6
+ SAM_MEMORY_SIZE 00 FFDA SAM_PAGE_NUMBER 00 FFD4 SAM_VIDEO_MODE 00 FFC0 
+SELECT_ROM_BANK 02 C0C4
+ SET_DATABUS_DIRECTION 02 C1B4  SRB_DONE 02 C0DA       TOP 02 C006 VECTOR_FIRQ 
+00 FFF6
+ VECTOR_IRQ 00 FFF8 VECTOR_NMI 00 FFFC VECTOR_NOT_USED 00 FFF0 VECTOR_RESET 00 
+FFFE
+ VECTOR_SW1 00 FFFA VECTOR_SWI2 00 FFF4 VECTOR_SWI3 00 FFF2 WAIT_FOR_READY 02 
+C2B2
+      WB_1 02 C078      WB_2 02 C094      WB_3 02 C065     WFR_1 02 C2B6
+ WRITEBYTE 02 C05E WRITE_IDE_REGISTER 02 C1D9 WRITE_SECTOR 02 C31F
+95 SYMBOLS
+
+0 error(s), 0 warning(s)
