@@ -36,5 +36,19 @@ POKE &HFF45,4     ; Data register port A
 
 PRINT PEEK(&HFF44) ; Data from prop outa[0,1,2,3,4,5,6,7]
 
-; TODO the CA1 and CA2
+
+
+FF45: 00_100_1_10        38
+
+CA2 is BUSY to propeller. When CA2 is high, the CoCo has not read the last data sent.
+When CA2 is low, the propeller can can the next byte.
+
+The upper bit of FF45 is the data-received to the CoCo. When the bit is 1, the A register
+contains new data to read. Reading the data clears the bit.
+
+When CA1 transitions from low to high, the upper bit of FF45 becomes 1 and CA2 becomes 1. This signals the CoCo
+code to read the value from register A. This signals the prop to wait before sending the next byte.
+
+When the CoCo code reads the value from register A, the upper bit of FF45 becomes 0 and CA2 becomes 0. This signals
+the CoCo code to wait for a value. This signals the prop to send the next byte.-
 ```
