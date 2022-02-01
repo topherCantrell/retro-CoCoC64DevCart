@@ -1,3 +1,17 @@
+PortA -- Input from host
+PortB:
+  7- Input from host
+  6- Output to host
+  5- x
+  4- x
+  3- |
+  2- | Output nibble ...
+  1- | ... to host
+  0- |
+
+Init:
+- Set the directions
+- All outputs 0
 
 WriteByteCoCo:
 - Write output upper nibble
